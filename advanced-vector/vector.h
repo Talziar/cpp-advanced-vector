@@ -17,15 +17,15 @@ public:
 
     RawMemory(const RawMemory &) = delete;
 
-    RawMemory(RawMemory &&other) noexcept : buffer_(std::exchange(other.buffer_, nullptr)), capacity_(std::exchange(other.capacity_, 0)) {}
+    RawMemory(RawMemory &&other) noexcept {
+        Swap(other);
+    }
 
     RawMemory &operator=(const RawMemory &rhs) = delete;
 
     RawMemory &operator=(RawMemory &&other) noexcept {
         if (this != &other) {
-            Deallocate(buffer_);
-            buffer_ = std::exchange(other.buffer_, nullptr);
-            capacity_ = std::exchange(other.capacity_, 0);
+            Swap(other);
         }
         return *this;
     }
@@ -125,7 +125,9 @@ public:
         std::uninitialized_copy_n(other.data_.GetAddress(), other.size_, data_.GetAddress());
     }
 
-    Vector(Vector &&other) noexcept : data_(std::exchange(other.data_, RawMemory<T>())), size_(std::exchange(other.size_, 0ull)) {}
+    Vector(Vector &&other) noexcept {
+        Swap(other);
+    }
 
     Vector &operator=(const Vector &rhs) {
         if (this != &rhs) {
@@ -133,14 +135,7 @@ public:
                 Vector rhs_copy(rhs);
                 Swap(rhs_copy);
             } else {
-                if (rhs.size_ < size_) {
-                    std::copy_n(rhs.data_.GetAddress(), rhs.size_, data_.GetAddress());
-                    std::destroy_n(data_.GetAddress() + rhs.size_, size_ - rhs.size_);
-                } else {
-                    std::copy_n(rhs.data_.GetAddress(), size_, data_.GetAddress());
-                    std::uninitialized_copy_n(rhs.data_.GetAddress() + size_, rhs.size_ - size_, data_.GetAddress() + size_);
-                }
-                size_ = rhs.size_;
+                CopyAssignFrom(rhs);
             }
         }
         return *this;
@@ -236,8 +231,8 @@ public:
 
     template <typename... Args>
     iterator Emplace(const_iterator pos, Args &&...args) {
+        assert(pos >= cbegin() && pos <= cend());
         size_t index = pos - cbegin();
-        assert(index <= size_);
 
         if (size_ < data_.Capacity()) {
             if (pos == cend()) {
@@ -277,8 +272,8 @@ public:
     }
 
     iterator Erase(const_iterator pos) noexcept(std::is_nothrow_move_assignable_v<T>) {
+        assert(pos >= cbegin() && pos < cend());
         size_t index = pos - cbegin();
-        assert(index < size_);
 
         if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
             std::move(begin() + index + 1, end(), begin() + index);
@@ -295,4 +290,14 @@ public:
 private:
     RawMemory<T> data_;
     size_t size_ = 0;
+
+    void CopyAssignFrom(const Vector &rhs) {
+        std::copy_n(rhs.data_.GetAddress(), std::min(size_, rhs.size_), data_.GetAddress());
+        if (rhs.size_ < size_) {
+            std::destroy_n(data_.GetAddress() + rhs.size_, size_ - rhs.size_);
+        } else {
+            std::uninitialized_copy_n(rhs.data_.GetAddress() + size_, rhs.size_ - size_, data_.GetAddress() + size_);
+        }
+        size_ = rhs.size_;
+    }
 };
